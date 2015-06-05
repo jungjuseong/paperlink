@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:p="http://www.springframework.org/schema/p"
+       xmlns:util="http://www.springframework.org/schema/util"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://www.springframework.org/schema/util
+       http://www.springframework.org/schema/util/spring-util.xsd"
+        profile="hackers_toeic_listening">
+
+    <import resource="buildContext.xml"/>
+
+    <bean id="customProperties" class="com.paperlink.CustomProperties">
+        <property name="publisher" value="IRON"/>
+        <property name="publishingDate" value="2015-8-30"/>
+        <property name="searchSite" value = "NAVER_ENDIC"></property>
+        <property name="pdfFilePath" value="/dev/PaperLink/src/main/resources/pdfs/"/>
+        <property name="delimeterPattern" value="[\s+|\,\?&amp;:;{}*.'“()]"/>
+        <property name="bookTitle" value = "Hackers Toeic LISTENING 2013"></property>
+        <property name="mediaURL" value = "http://localhost/media/hackers_toeic_listening/"></property>
+        <property name="preDefinedLinks" ref="hackers_toeic_listening_media_links"/>
+    </bean>
+
+    <bean id="linkBuilder" class="com.paperlink.service.LinkBuilder">
+        <property name="bookProperties" ref="customProperties"/>
+    </bean>
+
+    <bean id="base_link" class="com.paperlink.domain.BookLink" abstract="true">
+        <property name="text" value =""/>
+        <property name="format" value = "audio/mp3"/>
+        <property name ="action" value = "LISTEN" />
+    </bean>
+    <util:map id="hackers_toeic_listening_media_links">
+        <entry key="진단고사_Part1"><bean parent="base_link" p:path="01Diagnostic/diagnostic_Part1.mp3"/> </entry>
+        <entry key="진단고사_Part2"><bean parent="base_link" p:path="01Diagnostic/diagnostic_Part2"/></entry>
+        <entry key="진단고사_Part3"><bean parent="base_link" p:path="01Diagnostic/diagnostic_Part3"/></entry>
+        <entry key="진단고사_Part4"><bean parent="base_link" p:path="01Diagnostic/diagnostic_Part4"/></entry>
+        <entry key="P1_기본_01"><bean parent="base_link" p:path="02Part/P1_Basic_01.mp3"/></entry>
+        <entry key="P1_기본_02"><bean parent="base_link" p:path="02Part/P1_Basic_02.mp3"/></entry>
+        <entry key="P1_기본_03"><bean parent="base_link" p:path="02Part/P1_Basic_03.mp3"/></entry>
+        <entry key="P1_기본_04"><bean parent="base_link" p:path="02Part/P1_Basic_04.mp3"/></entry>
+        <entry key="P1_기본_05"><bean parent="base_link" p:path="02Part/P1_Basic_05.mp3"/></entry>
+        <entry key="P1_기본_06"><bean parent="base_link" p:path="02Part/P1_Basic_06.mp3"/></entry>
+        <entry key="P1_기본_07"><bean parent="base_link" p:path="02Part/P1_Basic_07.mp3"/></entry>
+        <entry key="P1_기본_08"><bean parent="base_link" p:path="02Part/P1_Basic_08.mp3"/></entry>
+        <entry key="P1_기본_09"><bean parent="base_link" p:path="02Part/P1_Basic_09.mp3"/></entry>
+        <entry key="P1_기본_10"><bean parent="base_link" p:path="02Part/P1_Basic_10.mp3"/></entry>
+        <entry key="P1_기본_11"><bean parent="base_link" p:path="02Part/P1_Basic_11.mp3"/></entry>
+        <entry key="P1_기본_12"><bean parent="base_link" p:path="02Part/P1_Basic_12.mp3"/></entry>
+        <entry key="P1_기본_13"><bean parent="base_link" p:path="02Part/P1_Basic_13.mp3"/></entry>
+        <entry key="P1_기본_14"><bean parent="base_link" p:path="02Part/P1_Basic_14.mp3"/></entry>
+        <entry key="P1_기본_15"><bean parent="base_link" p:path="02Part/P1_Basic_15.mp3"/></entry>
+        <entry key="P1_기본_16"><bean parent="base_link" p:path="02Part/P1_Basic_16.mp3"/></entry>
+        <entry key="P1_기본_17"><bean parent="base_link" p:path="02Part/P1_Basic_17.mp3"/></entry>
+        <entry key="P1_기본_18"><bean parent="base_link" p:path="02Part/P1_Basic_18.mp3"/></entry>
+        <entry key="P1_기본_19"><bean parent="base_link" p:path="02Part/P1_Basic_19.mp3"/></entry>
+        <entry key="P1_기본_20"><bean parent="base_link" p:path="02Part/P1_Basic_20.mp3"/></entry>
+        <entry key="P1_기본_21"><bean parent="base_link" p:path="02Part/P1_Basic_21.mp3"/></entry>
+        <entry key="P1_기본_22"><bean parent="base_link" p:path="02Part/P1_Basic_22.mp3"/></entry>
+        <entry key="P1_기본_23"><bean parent="base_link" p:path="02Part/P1_Basic_23.mp3"/></entry>
+        <entry key="P1_기본_24"><bean parent="base_link" p:path="02Part/P1_Basic_24.mp3"/></entry>
+        <entry key="P1_기본_25"><bean parent="base_link" p:path="02Part/P1_Basic_25.mp3"/></entry>
+    </util:map>
+</beans>
