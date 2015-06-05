@@ -33,7 +33,7 @@ public class JWNLWordAnalyser implements WordAnalyser {
             if (iw != null)
                 return iw.getLemma();
 
-            return new String();
+            return null;
         } catch (JWNLException e) {
             System.out.println(e.toString());
             return null;

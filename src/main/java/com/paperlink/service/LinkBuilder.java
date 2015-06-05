@@ -92,66 +92,20 @@ public class LinkBuilder {
                 }
             }
 
-            if (word.getText().length() < 3) {
-                bLinks.add(null);
-                continue;
-            }
-            // 단어의 원형을 검사
-            String morph = wordAnalyser.morphologicalAnalysis(word.getText());
-            //if (morph != null && wordDictionaryService.getWord(trimmedText) != null) {
-            //    bLinks.add(new BookLink(morph+":","html/text","url",searchSite));
-            //}
-            //else {
-            //    bLinks.add(new BookLink(trimmedText,"html/text","url",searchSite));
-            //
-            //}
-            if (morph.length() > 3 && !morph.equals(word.getText()))
-                bLinks.add(new BookLink(word.getText()+"," + morph, "html/text", "LINK", bookProperties.getSearchSite()));
-            else
-                bLinks.add(new BookLink(word.getText(),"html/text","LINK", bookProperties.getSearchSite()));
-
-        }
-        if (bLinks.size() != strings.size())
-            System.out.printf("error during making link urls\n");
-
-        return bLinks;
-    }
-
-    private List<BookLink> makeLinks(List<StringWithRect> strings) {
-        List<BookLink> bLinks = new ArrayList<BookLink>();
-
-        for (StringWithRect word : strings) {
-
-            // 책사전에 예약된 단어에 대한 링크가 있는지
-            if (bookProperties.getPreDefinedLinks().get(word.getText()) != null) {
-                bLinks.add(bookProperties.getPreDefinedLinks().get(word.getText()));
-                continue;
-            }
-
-            // 영문인가?
-            if (!isAlphabet(word.getText())) {
-                bLinks.add(null);
-                continue;
-            }
             // 2자 미만은 링크 안함
-            if (word.getText().length() < 3) {
+            // 알파벳 문자열이 아니면 건너뜀?
+            if (word.getText().length() < 3 || !isOnlyAlphabet(word.getText())) {
                 bLinks.add(null);
                 continue;
             }
 
             // 단어의 원형을 검사
-            String morph = wordAnalyser.morphologicalAnalysis(word.getText());
-            //if (morph != null && wordDictionaryService.getWord(trimmedText) != null) {
-            //    bLinks.add(new BookLink(morph+":","html/text","url",searchSite));
-            //}
-            //else {
-            //    bLinks.add(new BookLink(trimmedText,"html/text","url",searchSite));
-            //
-            //}
-            if (morph.length() > 3)
-                bLinks.add(new BookLink(word.getText()+"," + morph,"html/text","LINK", bookProperties.getSearchSite()));
-            else
+            String morphWord = wordAnalyser.morphologicalAnalysis(word.getText());
+
+            if (morphWord == null || word.getText().equals(morphWord))
                 bLinks.add(new BookLink(word.getText(),"html/text","LINK", bookProperties.getSearchSite()));
+            else
+                bLinks.add(new BookLink(word.getText()+"," + morphWord, "html/text", "LINK", bookProperties.getSearchSite()));
 
         }
         if (bLinks.size() != strings.size())
@@ -164,7 +118,6 @@ public class LinkBuilder {
      * adds the link to the page from texts and rects lists.
      * @param page  current page number
      * @param strings  List<StringsWithRect>
-     * @throws
      */
     private void addLinksToPage(int page, List<StringWithRect> strings) {
 
@@ -202,9 +155,14 @@ public class LinkBuilder {
     }
 
 
-    private boolean isAlphabet(String word) {
+    public boolean isOnlyAlphabet(String s){
+
+        return s.matches("^[a-zA-Z]+$");
+    }
+
+    private boolean isKoreanAlphabet(String word) {
         for (char c : word.toCharArray()) {
-            if(!(Character.isAlphabetic(c)))
+            if(Character.getType(c) != 5)
                 return false;
         }
         return true;
