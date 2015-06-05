@@ -1,5 +1,5 @@
-.idea
+.idea/
 *.iml
-target
-results
-out
+target/
+results/
+out/
