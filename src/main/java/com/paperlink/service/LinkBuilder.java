@@ -10,8 +10,8 @@ import com.paperlink.SpreadedTextRenderListener;
 import com.paperlink.dao.WordDaoImpl;
 import com.paperlink.domain.BookLink;
 import com.paperlink.util.HexStringConverter;
+import com.paperlink.util.PaperGlyphs;
 import com.paperlink.util.StringCheck;
-import com.paperlink.util.StringWithRect;
 import org.apache.log4j.chainsaw.Main;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -28,9 +28,6 @@ import java.util.logging.Logger;
 @Service
 public class LinkBuilder {
 
-    // 중국어 분석기
-    //private CnAnalyser cnAnalyser = new CnAnalyser();
-
     private WordAnalyser wordAnalyser = null; // english analyser
     @Autowired
     private WordDaoImpl wordDictionaryService;
@@ -41,9 +38,7 @@ public class LinkBuilder {
     }
 
     /**
-     * Extracts texts from a PDF document and adds the link information to its text .
-     *
-     * @throws IOException, DocumentException
+     * Extracts texts from a PDF document and adds the link information to its text
      */
 
     private PrintWriter writer;
@@ -62,13 +57,17 @@ public class LinkBuilder {
 
         // for each page, I'll reset listener so ...
         for (int page = 1; page <= numPage; page++) {
-            List<StringWithRect> glyphs = new ArrayList<StringWithRect>();
+            //List<StringWithRect> glyphs = new ArrayList<StringWithRect>();
+            PaperGlyphs glyphs = new PaperGlyphs();
 
+            //new PdfContentStreamProcessor(new SpreadedTextRenderListener(glyphs)).
             new PdfContentStreamProcessor(new SpreadedTextRenderListener(glyphs)).
-                        processContent(ContentByteUtils.getContentBytesForPage(reader, page),
-                                reader.getPageN(page).getAsDict(PdfName.RESOURCES));
+            processContent(ContentByteUtils.getContentBytesForPage(reader, page),
+                    reader.getPageN(page).getAsDict(PdfName.RESOURCES));
 
-            List<BookLink> bookLinks = makeMeaningfulWordToLink(getStringListFromGlyph(glyphs));
+            // glyphs에는 현재 페이지의 모든 문자(glyph)들이 들어 있다.
+            List<PaperGlyphs> glyphsList = getStringListFromGlyph(glyphs);
+            List<BookLink> bookLinks = makeMeaningfulWordToLink(glyphsList);
             printLinkInfo(stamper, page, bookLinks, FORMAT_OUT_TEXT);
         }
         writer.close();
@@ -78,54 +77,64 @@ public class LinkBuilder {
 
     // 각 개별 글자들로부터 단어로 묶어낸다. (사각형 좌표도 머지 연산이 됨)
     // 단지 분리자에 의해 분리된 스트링에 불과한다.
-    // 분리자 delimeter는 -config.xml 파일에 있다.
-    private List<StringWithRect> getStringListFromGlyph(List<StringWithRect> glyphs) {
-        List<StringWithRect> strList = new ArrayList<StringWithRect>();
+    // delimeter는 -config.xml 파일에 있다.
+    //private List<StringWithRect> getStringListFromGlyph(List<StringWithRect> glyphs) {
+    private List<PaperGlyphs> getStringListFromGlyph(PaperGlyphs glyphs) {
+        List<PaperGlyphs> glyphsList = new ArrayList<PaperGlyphs>();
 
-        for (int i = 0, spanStart = 0; i < glyphs.size(); i++) {
-            if (glyphs.get(i).getText() != null &&
-                    glyphs.get(i).getText().matches(bookProperties.getDelimeterPattern().toString())) {
-                strList.add(StringWithRect.mergeFrom(glyphs, spanStart, i - 1));
+        for (int i = 0, spanStart = 0; i < glyphs.getText().length(); i++) {
 
+            if (glyphs.getText().substring(i, i + 1).matches(bookProperties.getDelimeterPattern().toString())) {
+                glyphsList.add(glyphs.subGlyph(glyphs, spanStart, i));
                 spanStart = i + 1;
             }
         }
-        return strList;
+        return glyphsList;
     }
 
-    // 의미있는 단어에게 링크를 부착한다. 의미있는 단어를 만들려면 미리 정의한 사전이 필요하다.
+    // 미리 정의한 단어에게 링크를 부착한다. -config파일에 등록된 단어를 의미한다.
     // 형태소 분석을 통해 분해하는 것도 여기서 작업을 한다.
-    private List<BookLink> makeMeaningfulWordToLink(List<StringWithRect> strings) {
+    private List<BookLink> makeMeaningfulWordToLink(List<PaperGlyphs> glyphsList) {
         List<BookLink> bookLinks = new ArrayList<BookLink>();
 
-        for (StringWithRect word : strings) {
+        for (PaperGlyphs glyphs : glyphsList) {
 
             // 미리 정의한 링크들은 -config.xml에 있다. 주로 멀티미디어 리소스로 연결하는데 사용한다
             if (bookProperties.getPreDefinedLinks() != null) {
-                BookLink aBookLink = bookProperties.getPreDefinedLinks().get(word.getText());
+                BookLink aBookLink = bookProperties.getPreDefinedLinks().get(glyphs.getText());
                 if (aBookLink != null) {
-                    aBookLink.setText(word.getText());
+                    aBookLink.setText(glyphs.getText());
                     aBookLink.setPath(bookProperties.getMediaURL() + aBookLink.getPath());
-                    aBookLink.setBoundingRect(word.getRect());
+                    aBookLink.setBoundingRect(glyphs.getBoundingRect());
                     bookLinks.add(aBookLink);
                     continue;
                 }
             }
 
             //if (word.getText().length() < 3 || !StringCheck.isOnlyAlphabet(word.getText())) { // 영어책
-            if (word.getText().length() < 1 || !StringCheck.containsChinese(word.getText())) { // 중국어책
+            if (glyphs.getText().length() < 1 || !StringCheck.containsChinese(glyphs.getText())) { // 중국어책
                 bookLinks.add(null);
                     continue;
             }
 
-            if (word.getText().length() > 1 && StringCheck.containsChinese(word.getText())) {
-                CnAnalyser.analysis(word.getText()); // 중국어 파서
-            }
+            if (glyphs.getText().length() > 1 && StringCheck.containsChinese(glyphs.getText())) {
+                List<Integer> runOffsets = CnAnalyser.analysis(glyphs.getText()); // 중국어 파서
+                if (runOffsets.size() > 0) {
+                    int index = 0;
+                    for (int i = 0; i < runOffsets.size(); i++) {
+                        int run = runOffsets.get(i);
 
-            bookLinks.add(new BookLink(word.getText(),"LINK", bookProperties.getSearchSite(), word.getRect()));
+                        bookLinks.add(new BookLink(glyphs.getText().substring(index, index+run),
+                                "LINK",
+                                bookProperties.getSearchSite(),
+                                glyphs.getBoundingRectBetween(index, index+run)));
+
+                        index += run;
+                    }
+                }
+            }
+            //bookLinks.add(new BookLink(glyphs.getText(),"LINK", bookProperties.getSearchSite(), glyphs.getBoundingRect()));
         }
-        if (bookLinks.size() != strings.size())
-            System.out.printf("error during making link urls\n");
 
         return bookLinks;
     }
@@ -141,9 +150,8 @@ public class LinkBuilder {
         overCanvas.saveState();
         overCanvas.setLineWidth(0.01f);
 
-        BookLink bookLink;
-        for (int i=0; i < bookLinks.size(); i++) {
-            bookLink = bookLinks.get(i);
+        for (BookLink bookLink : bookLinks) {
+
             if (bookLink != null) {
                 int llx = bookLink.getBoundingRect().x;
                 int lly = bookLink.getBoundingRect().y;
@@ -170,20 +178,8 @@ public class LinkBuilder {
     }
 
     public void printPageInfo(int numPage, Rectangle mediaBox) throws IOException {
-
         writer.printf("Number of pages: %s\n", numPage);
         writer.printf("Size of page: [%.2f %.2f %.2f %.2f]\n", mediaBox.getLeft(), mediaBox.getBottom(), mediaBox.getRight(), mediaBox.getTop());
-        /*
-        printWriter.print("Rotation of page 1: ");
-        printWriter.println(pdfReader.getPageRotation(1));
-        printWriter.print("Page size with rotation of page 1: ");
-        printWriter.println(pdfReader.getPageSizeWithRotation(1));
-        printWriter.print("Is rebuilt? ");
-        printWriter.println(pdfReader.isRebuilt());
-        printWriter.print("Is encrypted? ");
-        printWriter.println(pdfReader.isEncrypted());
-        printWriter.println();
-        */
         writer.flush();
     }
 
