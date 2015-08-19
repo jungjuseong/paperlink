@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd"
+       profile="cretec-opti-555">
+
+    <import resource="buildContext.xml"/>
+
+    <bean id="customProperties" class="com.paperlink.CustomProperties">
+        <property name="publisher" value="IRON"/>
+        <property name="publishingDate" value="2015-8-30"/>
+        <property name="pdfFilePath" value="/dev/PaperLink/src/main/resources/pdfs/"/>
+        <property name="delimeterPattern" value="[\s+]"/>
+        <!--property name="delimeterPattern" value="[\s+\t\n\r]"/-->
+        <property name="searchSite" value = "http://test.cretec.kr/"/>
+        <property name="bookTitle" value = "크레텍 책임 주문 사이트"></property>
+        <property name="mediaURL" value = "http://localhost/media/cretec-o1/"></property>
+    </bean>
+
+    <bean id="linkBuilder" class="com.paperlink.service.LinkBuilder">
+        <property name="bookProperties" ref="customProperties"/>
+    </bean>
+</beans>
