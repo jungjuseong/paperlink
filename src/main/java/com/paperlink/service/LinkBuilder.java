@@ -1,7 +1,8 @@
 package com.paperlink.service;
 
+import com.itextpdf.text.BaseColor;
 import com.itextpdf.text.DocumentException;
-import com.itextpdf.text.Rectangle;
+import com.itextpdf.text.Image;
 import com.itextpdf.text.pdf.*;
 import com.itextpdf.text.pdf.parser.ContentByteUtils;
 import com.itextpdf.text.pdf.parser.PdfContentStreamProcessor;
@@ -12,6 +13,7 @@ import com.paperlink.domain.BookLink;
 import com.paperlink.util.HexStringConverter;
 import com.paperlink.util.PaperGlyphs;
 import com.paperlink.util.StringCheck;
+import com.paperlink.util.TokenOffset;
 import org.apache.log4j.chainsaw.Main;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class LinkBuilder {
@@ -33,6 +37,7 @@ public class LinkBuilder {
     private WordDaoImpl wordDictionaryService;
     @Autowired
     private CustomProperties bookProperties;
+
     public void setBookProperties(CustomProperties bookProperties) {
         this.bookProperties = bookProperties;
     }
@@ -41,99 +46,183 @@ public class LinkBuilder {
      * Extracts texts from a PDF document and adds the link information to its text
      */
 
-    private PrintWriter writer;
+    private PrintWriter txtWriter;
 
     private final String FORMAT_OUT_TEXT = "{\"%s\",\"%d\",\"%d %d %d %d\",\"%s\",\"%s\"}\n";
 
-    // 시작 지점이다
-    public void scanDocument(String jobName)  throws IOException, DocumentException {
+    private void printPageBoxInfo(PdfReader reader, int page, String boxType) {
+        com.itextpdf.text.Rectangle r = reader.getBoxSize(page, boxType);
+
+        System.out.printf("%s\t[%.0f %.0f %.0f %.0f] unit(72dpi), ", boxType, r.getLeft(), r.getBottom(), r.getWidth(), r.getHeight());
+        System.out.printf("[%.1f %.1f %.1f %.1f] inch\n", r.getLeft() / 72.0f, r.getBottom() / 72.0f, r.getWidth() / 72.0f, r.getHeight() / 72.0f);
+    }
+
+    // 분석 시작 지점이다
+    public void scanDocument(String jobName) throws IOException, DocumentException {
 
         PdfReader reader = new PdfReader(bookProperties.getPdfFilePath() + jobName + ".pdf"); // 원본 pdf
         PdfStamper stamper = new PdfStamper(reader, new FileOutputStream("results/" + jobName + "_result.pdf")); // 새로 만들 pdf
-        writer = new PrintWriter(new FileOutputStream("results/" + jobName + "_result.txt")); // 좌표 정보가 들어가는 text 파일
+        txtWriter = new PrintWriter(new FileOutputStream("results/" + jobName + "_result.txt"));
 
         int numPage = reader.getNumberOfPages();
-        printPageInfo(numPage, reader.getPageSize(1)); // print PDF size information
 
-        // for each page, I'll reset listener so ...
-        for (int page = 1; page <= numPage; page++) {
-            //List<StringWithRect> glyphs = new ArrayList<StringWithRect>();
-            PaperGlyphs glyphs = new PaperGlyphs();
+        com.itextpdf.text.Rectangle cropBox;
+        com.itextpdf.text.Rectangle mediaBox;
 
-            //new PdfContentStreamProcessor(new SpreadedTextRenderListener(glyphs)).
-            new PdfContentStreamProcessor(new SpreadedTextRenderListener(glyphs)).
-            processContent(ContentByteUtils.getContentBytesForPage(reader, page),
-                    reader.getPageN(page).getAsDict(PdfName.RESOURCES));
+        printPageNum(numPage);
 
-            // glyphs에는 현재 페이지의 모든 문자(glyph)들이 들어 있다.
-            List<PaperGlyphs> glyphsList = getStringListFromGlyph(glyphs);
-            List<BookLink> bookLinks = makeMeaningfulWordToLink(glyphsList);
-            printLinkInfo(stamper, page, bookLinks, FORMAT_OUT_TEXT);
+        if (bookProperties.getBookTitle().equals("cn_master1")) {
+            // for each page, I'll reset listener so ...
+            for (int page = 1; page <= numPage; page++) {
+
+                cropBox = reader.getBoxSize(page, "crop");
+                mediaBox = reader.getBoxSize(page, "media");
+
+                PaperGlyphs glyphs = usingStreamProcessor(reader, page, "[\\p{script=Han}]*", false);
+                List<BookLink> bookLinks = makeMeaningfulWordToLinkforChinese(glyphs);
+
+                printLinkInfo(page, cropBox, bookLinks, FORMAT_OUT_TEXT);
+
+            }
+
+        } else if (bookProperties.getBookTitle().equals("cretec-opti-555")) {
+
+            for (int page = 1; page <= numPage; page++) {
+
+                cropBox = reader.getBoxSize(page, "crop");
+                mediaBox = reader.getBoxSize(page, "media");
+
+                printPageBoxInfo(reader, page, "crop");
+                //printPageBoxInfo(reader, page, "trim");
+                //printPageBoxInfo(reader, page, "art");
+                printPageBoxInfo(reader, page, "media");
+
+                PaperGlyphs glyphs = usingStreamProcessor(reader, page, "[0-9\\-]+", true);
+                List<BookLink> bookLinks = makeMeaningfulWordToLinkforCretec(glyphs);
+
+                String forehand = "src/main/resources/page_images/cretec_publish_images/책임기업-opti-555_페이지_";
+
+                showLinkedArea(stamper.getOverContent(page), bookLinks, mediaBox, cropBox);
+
+                String resourceName = forehand + String.format("%02d_pbh.tif", page);
+
+                clippingLinkedArea(stamper.getOverContent(page), bookLinks, resourceName, cropBox);
+
+                printLinkInfo(page, cropBox, bookLinks, FORMAT_OUT_TEXT);
+            }
+        } else if (bookProperties.getBookTitle().equals("hackers_toeic_listening")) {
+            for (int page = 1; page <= numPage; page++) {
+
+                PaperGlyphs glyphs = usingStreamProcessor(reader, page, "[A-Za-z0-9_\\.\\-\\s]+", false);
+                List<BookLink> bookLinks = makeMeaningfulWordToLinkforHackersToiecListening(glyphs);
+
+                cropBox = reader.getBoxSize(page, "crop");
+                mediaBox = reader.getBoxSize(page, "media");
+
+                printLinkInfo(page, cropBox, bookLinks, FORMAT_OUT_TEXT);
+            }
+
         }
-        writer.close();
+        txtWriter.close();
         stamper.close();
         reader.close();
     }
 
-    // 각 개별 글자들로부터 단어로 묶어낸다. (사각형 좌표도 머지 연산이 됨)
-    // 단지 분리자에 의해 분리된 스트링에 불과한다.
-    // delimeter는 -config.xml 파일에 있다.
-    //private List<StringWithRect> getStringListFromGlyph(List<StringWithRect> glyphs) {
-    private List<PaperGlyphs> getStringListFromGlyph(PaperGlyphs glyphs) {
-        List<PaperGlyphs> glyphsList = new ArrayList<PaperGlyphs>();
+    private PaperGlyphs usingStreamProcessor(PdfReader reader, int page, String filter, boolean shouldWordBreak) throws IOException {
+        PaperGlyphs glyphs = new PaperGlyphs();
 
-        for (int i = 0, spanStart = 0; i < glyphs.getText().length(); i++) {
+        new PdfContentStreamProcessor(new SpreadedTextRenderListener(glyphs, filter, shouldWordBreak)).
+                processContent(ContentByteUtils.getContentBytesForPage(reader, page),
+                        reader.getPageN(page).getAsDict(PdfName.RESOURCES));
 
-            if (glyphs.getText().substring(i, i + 1).matches(bookProperties.getDelimeterPattern().toString())) {
-                glyphsList.add(glyphs.subGlyph(glyphs, spanStart, i));
-                spanStart = i + 1;
-            }
-        }
-        return glyphsList;
+        return glyphs;
+
     }
 
     // 미리 정의한 단어에게 링크를 부착한다. -config파일에 등록된 단어를 의미한다.
     // 형태소 분석을 통해 분해하는 것도 여기서 작업을 한다.
-    private List<BookLink> makeMeaningfulWordToLink(List<PaperGlyphs> glyphsList) {
+    private List<BookLink> makeMeaningfulWordToLinkforChinese(PaperGlyphs glyphs) {
         List<BookLink> bookLinks = new ArrayList<BookLink>();
 
-        for (PaperGlyphs glyphs : glyphsList) {
+        if (glyphs.getText().length() > 0 || StringCheck.containsChinese(glyphs.getText())) { // 중국어책
 
-            // 미리 정의한 링크들은 -config.xml에 있다. 주로 멀티미디어 리소스로 연결하는데 사용한다
-            if (bookProperties.getPreDefinedLinks() != null) {
-                BookLink aBookLink = bookProperties.getPreDefinedLinks().get(glyphs.getText());
-                if (aBookLink != null) {
-                    aBookLink.setText(glyphs.getText());
-                    aBookLink.setPath(bookProperties.getMediaURL() + aBookLink.getPath());
-                    aBookLink.setBoundingRect(glyphs.getBoundingRect());
-                    bookLinks.add(aBookLink);
-                    continue;
-                }
-            }
-
-            //if (word.getText().length() < 3 || !StringCheck.isOnlyAlphabet(word.getText())) { // 영어책
-            if (glyphs.getText().length() < 1 || !StringCheck.containsChinese(glyphs.getText())) { // 중국어책
-                bookLinks.add(null);
-                    continue;
-            }
-
+            // 형태소 분석을 통해 중국어 단어들을 분리하는 작업
             if (glyphs.getText().length() > 1 && StringCheck.containsChinese(glyphs.getText())) {
-                List<Integer> runOffsets = CnAnalyser.analysis(glyphs.getText()); // 중국어 파서
+                List<Integer> runOffsets = CnAnalyser.analysis(glyphs.getText());
                 if (runOffsets.size() > 0) {
                     int index = 0;
                     for (int i = 0; i < runOffsets.size(); i++) {
                         int run = runOffsets.get(i);
 
-                        bookLinks.add(new BookLink(glyphs.getText().substring(index, index+run),
+                        bookLinks.add(new BookLink(glyphs.getText().substring(index, index + run),
                                 "LINK",
                                 bookProperties.getSearchSite(),
-                                glyphs.getBoundingRectBetween(index, index+run)));
+                                glyphs.getBoundingRectBetween(index, index + run)));
 
                         index += run;
                     }
+                } else if (glyphs.getText().length() == 1) {
+                    bookLinks.add(new BookLink(glyphs.getText(),
+                            "LINK",
+                            bookProperties.getSearchSite(),
+                            glyphs.getBoundingRect()));
                 }
+                //TextRenderInfo tri = glyphs.getTextRenderInfo();
+                // do graphics here!!!
             }
-            //bookLinks.add(new BookLink(glyphs.getText(),"LINK", bookProperties.getSearchSite(), glyphs.getBoundingRect()));
+        }
+
+        return bookLinks;
+    }
+
+    // 미리 정의한 단어에게 링크를 부착한다. -config파일에 등록된 단어를 의미한다.
+    // 형태소 분석을 통해 분해하는 것도 여기서 작업을 한다.
+    private List<BookLink> makeMeaningfulWordToLinkforCretec(PaperGlyphs glyphs) {
+        List<BookLink> bookLinks = new ArrayList<BookLink>();
+
+        Pattern pattern = Pattern.compile("([0-9]{0,3}[-][0-9]{4})"); /// 000-0000 or -0000
+
+        Matcher matcher = pattern.matcher(glyphs.getText());
+
+        while (matcher.find()) {
+
+            bookLinks.add(new BookLink(matcher.group(),
+                    "LINK",
+                    bookProperties.getSearchSite(),
+                    glyphs.getBoundingRectBetween(matcher.start(), matcher.end())));
+        }
+        System.out.println();
+
+        return bookLinks;
+    }
+
+    private List<BookLink> makeMeaningfulWordToLinkforHackersToiecListening(PaperGlyphs glyphs) {
+        List<BookLink> bookLinks = new ArrayList<BookLink>();
+
+
+        if (glyphs.getText().length() > 1) {
+
+            // 형태소 분석을 통해 단어들을 분리하는 작업
+            if (glyphs.getText().length() > 1) {
+                List<TokenOffset> runOffsets = EnAnalyser.analysis(glyphs.getText());
+                if (runOffsets.size() > 0) {
+                    for (int i = 0; i < runOffsets.size(); i++) {
+                        TokenOffset run = runOffsets.get(i);
+
+                        bookLinks.add(new BookLink(glyphs.getText().substring(run.getStart(), run.getEnd()),
+                                "LINK",
+                                bookProperties.getSearchSite(),
+                                glyphs.getBoundingRectBetween(run.getStart(), run.getEnd())));
+                    }
+                } else if (glyphs.getText().length() == 1) {
+                    bookLinks.add(new BookLink(glyphs.getText(),
+                            "LINK",
+                            bookProperties.getSearchSite(),
+                            glyphs.getBoundingRect()));
+                }
+                //TextRenderInfo tri = glyphs.getTextRenderInfo();
+                // do graphics here!!!
+            }
         }
 
         return bookLinks;
@@ -142,45 +231,147 @@ public class LinkBuilder {
     /**
      * adds the link to the page from texts and rects lists.
      */
-    private void printLinkInfo(PdfStamper stamper, int page, List<BookLink> bookLinks, String PRINT_FORMAT) {
+    private void printLinkInfo(int page, com.itextpdf.text.Rectangle cropBox, List<BookLink> bookLinks, String PRINT_FORMAT) {
 
-        //List<BookLink> bookLinks = makeAllTextToLinks(strings);
-        PdfContentByte overCanvas = stamper.getOverContent(page); // copy page to new canvas
-
-        overCanvas.saveState();
-        overCanvas.setLineWidth(0.01f);
+        txtWriter.printf("%d page's CropBox: [%.0f %.0f %.0f %.0f]\n", page, cropBox.getLeft(), cropBox.getBottom(), cropBox.getWidth(), cropBox.getHeight());
 
         for (BookLink bookLink : bookLinks) {
+            if (bookLink != null && bookLinks.size() > 0) {
+                int llx = bookLink.getRect().x;
+                int lly = bookLink.getRect().y;
+                int urx = llx + bookLink.getRect().width;
+                int ury = lly + bookLink.getRect().height;
 
-            if (bookLink != null) {
-                int llx = bookLink.getBoundingRect().x;
-                int lly = bookLink.getBoundingRect().y;
-                int urx = llx + bookLink.getBoundingRect().width;
-                int ury = lly + bookLink.getBoundingRect().height;
                 try {
-                    String theHexaText = HexStringConverter.getHexStringConverterInstance().stringToHex(bookLink.getText());
+                    String param = bookLink.getText();
 
-                    writer.printf(PRINT_FORMAT, bookLink.getText(), page, llx, lly, urx, ury, bookLink.getAction(), bookLink.getPath()+theHexaText);
-                    overCanvas.setAction(new PdfAction(bookLink.getPath()+theHexaText), llx, lly, urx, ury); // add the link
+                    if (StringCheck.containsChinese(bookLink.getText()) || StringCheck.containsKorean(bookLink.getText()))
+                        param = HexStringConverter.getHexStringConverterInstance().stringToHex(bookLink.getText());
+
+                    txtWriter.printf(PRINT_FORMAT, bookLink.getText(), page, llx, lly, urx, ury, bookLink.getAction(), bookLink.getPath() + param);
+
+                } catch (UnsupportedEncodingException ex) {
+                    Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
                 }
-                catch (UnsupportedEncodingException ex) {
-                        Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
-                }
+
             }
         }
         System.out.printf("%3d ", page);
-        if (page%20 == 0)
+        if (page % 20 == 0)
             System.out.println();
-
-        overCanvas.stroke();
-        overCanvas.closePath();
-        overCanvas.restoreState();
     }
 
-    public void printPageInfo(int numPage, Rectangle mediaBox) throws IOException {
-        writer.printf("Number of pages: %s\n", numPage);
-        writer.printf("Size of page: [%.2f %.2f %.2f %.2f]\n", mediaBox.getLeft(), mediaBox.getBottom(), mediaBox.getRight(), mediaBox.getTop());
-        writer.flush();
+
+    private void showLinkedArea(PdfContentByte canvas, List<BookLink> bookLinks, com.itextpdf.text.Rectangle mediaBox, com.itextpdf.text.Rectangle cropBox)
+            throws DocumentException {
+
+        canvas.saveState();
+
+        canvas.setLineWidth(1.5f);
+        canvas.setColorStroke(BaseColor.BLUE);
+        canvas.rectangle(mediaBox);
+        canvas.stroke();
+
+        canvas.setColorStroke(BaseColor.RED);
+        canvas.rectangle(cropBox);
+        canvas.closePathStroke();
+
+        canvas.setLineWidth(0.0009f);
+
+        for (BookLink bookLink : bookLinks) {
+
+            if (bookLink != null && bookLinks.size() > 0) {
+
+                int llx = bookLink.getRect().x;
+                int lly = bookLink.getRect().y;
+                int urx = llx + bookLink.getRect().width;
+                int ury = lly + bookLink.getRect().height;
+
+                try {
+                    String param = bookLink.getText();
+
+                    if (StringCheck.containsChinese(bookLink.getText()) || StringCheck.containsKorean(bookLink.getText()))
+                        param = HexStringConverter.getHexStringConverterInstance().stringToHex(bookLink.getText());
+
+                    canvas.setAction(new PdfAction(bookLink.getPath() + param), llx, lly, urx, ury); // add the link
+
+                    showTextOverRect(canvas, bookLink.getRect(), bookLink.getText());
+                } catch (UnsupportedEncodingException ex) {
+                    Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
+                }
+
+            }
+        }
+
+        canvas.restoreState();
+
     }
 
+    public static final float IMAGE_SCALE_FACTOR = 0.06f; // 72/1200;
+
+    private void clippingLinkedArea(PdfContentByte canvas, List<BookLink> bookLinks, final String RESOURCE, com.itextpdf.text.Rectangle cropBox)
+            throws DocumentException, IOException {
+
+        if (bookLinks.size() > 0) {
+            canvas.saveState();
+            canvas.setLineWidth(0.09f);
+
+            for (BookLink bookLink : bookLinks) {
+                java.awt.Rectangle rect = bookLink.getRect();
+                canvas.rectangle(rect.x - 1, rect.y + 2.1f, rect.getWidth() + 5, rect.getHeight() - 1.5f);
+            }
+
+            canvas.clip();
+            canvas.newPath();
+
+            Image coordImage = Image.getInstance(RESOURCE);
+            if (coordImage.isMaskCandidate())
+                coordImage.makeMask();
+
+            coordImage.scalePercent(6 ,6); // IMAGE_SCALE_FACTOR * 100.0f, IMAGE_SCALE_FACTOR * 100.0f);
+
+            float yOffset = coordImage.getScaledHeight() - cropBox.getHeight();
+            if (yOffset < 0.0f) {
+                yOffset = 0.0f;
+            }
+
+            coordImage.setAbsolutePosition(cropBox.getLeft(), cropBox.getBottom()-yOffset);
+
+            canvas.addImage(coordImage);
+
+            canvas.restoreState();
+        }
+    }
+
+    public void printPageNum(int numPage) throws IOException {
+        txtWriter.printf("Number of pages: %s\n", numPage);
+    }
+
+    public void showTextOverRect(PdfContentByte canvas, java.awt.Rectangle rect, String text) throws DocumentException {
+
+        canvas.saveState();
+
+            //배경은 WHITE
+            canvas.setColorFill(BaseColor.WHITE);
+            canvas.rectangle(rect.x - 1, rect.y + 2.5f, rect.getWidth() + 5, rect.getHeight() - 2.2f);
+            canvas.fill();
+
+            canvas.beginText();
+
+                // 글자 색은 non-K
+                canvas.setTextRenderingMode(PdfContentByte.TEXT_RENDER_MODE_FILL);
+                canvas.setCMYKColorFill(0xA0, 0xB0, 0xC0, 0x00);
+                try {
+                    canvas.setFontAndSize(BaseFont.createFont(), 8);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+                canvas.setTextMatrix(rect.x, rect.y + 3.5f);
+                canvas.showText(text);
+
+            canvas.endText();
+
+        canvas.restoreState();
+    }
 }
